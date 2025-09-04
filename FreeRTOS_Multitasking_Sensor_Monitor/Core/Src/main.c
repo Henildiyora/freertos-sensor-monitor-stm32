@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include "bme280.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,7 +33,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define BLINK_DELAY_MS 500
+#define SENSOR_READ_DELAY_MS 2000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,8 +58,24 @@ const osThreadAttr_t defaultTask_attributes = {
 
 
 osThreadId_t ledAlarmTaskHandle;
+const osThreadAttr_t ledTask_attributes = {
+  .name = "ledAlarmTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+
 osThreadId_t i2cSensorTaskHandle;
+const osThreadAttr_t i2cTask_attributes = {
+  .name = "i2cSensorTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+
+
 osThreadId_t gpsTaskHandle;
+
+
+
 
 /* USER CODE END PV */
 
@@ -78,6 +96,16 @@ void GpsTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#ifdef __GNUC__
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+#endif
+PUTCHAR_PROTOTYPE
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+  return ch;
+}
 
 /* USER CODE END 0 */
 
@@ -141,9 +169,12 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
+  ledAlarmTaskHandle = osThreadNew(LedAlarmTask, NULL, &ledTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
+  i2cSensorTaskHandle = osThreadNew(I2CSensorTask, NULL, &i2cTask_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
@@ -322,14 +353,46 @@ static void MX_GPIO_Init(void)
 
 void LedAlarmTask(void *argument) {
 	for(;;){
-		osDelay(1000);
+
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+		osDelay(BLINK_DELAY_MS);
 	}
 }
 
 void I2CSensorTask(void *argument) {
-    for(;;) {
+
+
+    	BME280_Data_t sensor_data;
+
         osDelay(1000);
-    }
+
+        if(BME280_Init(&hi2c1) != HAL_OK){
+        	printf("BME280 initialization failed!\r\n");
+        	osThreadTerminate(NULL);
+        }
+        else{
+        	 printf("BME280 initialized successfully.\r\n");
+        }
+
+
+        for(;;){
+
+        	if(BME280_ReadData(&hi2c1, &sensor_data) == HAL_OK){
+
+
+        		printf("Temp: %.2f C, Pres: %.2f hPa, Hum: %.2f %%\r\n",
+        		                   sensor_data.temperature,
+        		                   sensor_data.pressure,
+        		                   sensor_data.humidity);
+        	}
+        	else{
+        		printf("failed to read sensor data.\r\n");
+        	}
+
+        	osDelay(SENSOR_READ_DELAY_MS);
+
+        }
+
 }
 
 void GpsTask(void *argument) {
